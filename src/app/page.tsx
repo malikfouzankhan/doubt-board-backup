@@ -2,14 +2,34 @@
 
 import { type FormEvent, useState } from "react";
 import { supabase } from "@/lib/supabase-browser";
-import { MAX_QUESTION_LENGTH } from "@/lib/questions";
+import { MAX_QUESTION_LENGTH, sortQuestions } from "@/lib/questions";
 import { useQuestions } from "@/lib/use-questions";
+import { useVotedIds } from "@/lib/voted";
 
 export default function AudiencePage() {
-  const { questions, loading, error, refetch } = useQuestions();
+  const { questions, setQuestions, loading, error, refetch } = useQuestions();
+  const { voted, setVoted } = useVotedIds();
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const [voteError, setVoteError] = useState<string | null>(null);
+
+  async function handleUpvote(id: string) {
+    if (voted.has(id)) return;
+    setVoted(id, true);
+    setVoteError(null);
+    setQuestions((prev) =>
+      sortQuestions(
+        prev.map((q) => (q.id === id ? { ...q, votes: q.votes + 1 } : q)),
+      ),
+    );
+    const { error } = await supabase.rpc("upvote", { question_id: id });
+    if (error) {
+      setVoted(id, false);
+      setVoteError("Your vote didn't go through. Please try again.");
+      refetch();
+    }
+  }
 
   const trimmed = text.trim();
   const canPost = trimmed.length > 0 && !posting;
@@ -70,6 +90,7 @@ export default function AudiencePage() {
       </form>
 
       {error && <p className="mb-4 text-red-600">{error}</p>}
+      {voteError && <p className="mb-4 text-red-600">{voteError}</p>}
 
       {loading ? (
         <p className="text-zinc-500">Loading questions…</p>
@@ -77,17 +98,36 @@ export default function AudiencePage() {
         <p className="text-zinc-500">No questions yet. Be the first to ask!</p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {questions.map((q) => (
-            <li
-              key={q.id}
-              className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              <p className="flex-1 wrap-break-word text-lg">{q.text}</p>
-              <span className="shrink-0 rounded-lg bg-zinc-100 px-3 py-1 text-sm font-semibold tabular-nums dark:bg-zinc-800">
-                {q.votes} {q.votes === 1 ? "vote" : "votes"}
-              </span>
-            </li>
-          ))}
+          {questions.map((q) => {
+            const hasVoted = voted.has(q.id);
+            return (
+              <li
+                key={q.id}
+                className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleUpvote(q.id)}
+                  disabled={hasVoted}
+                  aria-label={hasVoted ? "You upvoted this" : "Upvote"}
+                  aria-pressed={hasVoted}
+                  className={`flex h-16 w-14 shrink-0 flex-col items-center justify-center rounded-xl border text-lg font-bold tabular-nums transition-colors ${
+                    hasVoted
+                      ? "border-indigo-600 bg-indigo-600 text-white"
+                      : "border-zinc-300 hover:border-indigo-500 hover:text-indigo-600 active:bg-indigo-50 dark:border-zinc-700 dark:active:bg-indigo-950"
+                  }`}
+                >
+                  <span aria-hidden className="text-sm leading-none">
+                    ▲
+                  </span>
+                  {q.votes}
+                </button>
+                <p className="flex-1 self-center wrap-break-word text-lg">
+                  {q.text}
+                </p>
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>
